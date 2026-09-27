@@ -18,27 +18,46 @@ jobs:
         run: |
           if [ ! -f project.zip ]; then
             echo "ERROR: project.zip was not found."
-            echo "Upload your Android project as project.zip in the repository root."
             exit 1
           fi
 
-      - name: Extract Android project
+          echo "project.zip found:"
+          ls -lh project.zip
+
+      - name: Extract project.zip
         run: |
           rm -rf extracted
-          mkdir extracted
+          mkdir -p extracted
           unzip -q project.zip -d extracted
+
+          echo "===== Extracted files ====="
+          find extracted -maxdepth 5 -type f | head -200
 
       - name: Find Android project
         id: find_project
+        shell: bash
         run: |
-          PROJECT_DIR=$(find extracted -type f \( -name "settings.gradle" -o -name "settings.gradle.kts" \) -print -quit | xargs dirname)
+          PROJECT_FILE=$(find extracted -type f \( \
+            -name "settings.gradle" \
+            -o \
+            -name "settings.gradle.kts" \
+          \) -print -quit)
 
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android Gradle project not found."
+          if [ -z "$PROJECT_FILE" ]; then
+            echo "ERROR: Android Gradle project was not found."
+            echo ""
+            echo "The ZIP must contain settings.gradle or settings.gradle.kts."
+            echo ""
+            echo "Files found inside project.zip:"
+            find extracted -maxdepth 6 -type f
             exit 1
           fi
 
-          echo "Android project found at: $PROJECT_DIR"
+          PROJECT_DIR=$(dirname "$PROJECT_FILE")
+
+          echo "Android project found:"
+          echo "$PROJECT_DIR"
+
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Set up Java 17
@@ -50,7 +69,7 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Install Android SDK components
+      - name: Install Android SDK
         run: |
           sdkmanager "platform-tools" \
                      "platforms;android-35" \
@@ -58,8 +77,14 @@ jobs:
 
       - name: Build APK
         working-directory: ${{ steps.find_project.outputs.project_dir }}
+        shell: bash
         run: |
+          echo "===== Android project ====="
+          pwd
+          ls -la
+
           if [ -f "./gradlew" ]; then
+            echo "Using Gradle wrapper..."
             chmod +x ./gradlew
             ./gradlew assembleDebug
           else
@@ -68,22 +93,27 @@ jobs:
 
             wget -q https://services.gradle.org/distributions/gradle-8.10.2-bin.zip
             unzip -q gradle-8.10.2-bin.zip
+
             export PATH="$PWD/gradle-8.10.2/bin:$PATH"
 
             gradle assembleDebug
           fi
 
-      - name: Find APK
+      - name: Find generated APK
         id: apk
+        shell: bash
         run: |
-          APK=$(find extracted -type f -name "*.apk" | head -n 1)
+          APK=$(find extracted -type f -name "*.apk" -print -quit)
 
           if [ -z "$APK" ]; then
             echo "ERROR: APK was not generated."
+            find extracted -type f
             exit 1
           fi
 
-          echo "APK found: $APK"
+          echo "APK found:"
+          echo "$APK"
+
           echo "apk_path=$APK" >> "$GITHUB_OUTPUT"
 
       - name: Upload APK
